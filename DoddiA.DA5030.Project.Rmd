@@ -1,0 +1,1483 @@
+---
+title: 'Survival Analysis of Cirrhosis Patients Using Classification Machine Learning Models: A Comprehensive Data Analysis'
+author: "Anusha Devi Doddi"
+date: "Spring 2024"
+output:
+  html_document:
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    df_print: paged
+  pdf_document: default
+  word_document: default
+subtitle: DA5030
+---
+## Business Understanding
+
+Cirrhosis is a chronic liver disease often associated with alcoholism, viral hepatitis B and C, and fatty liver disease, among other causes. It is characterized by the replacement of liver tissue by fibrosis, scar tissue, and regenerative nodules, leading to a progressive loss of liver function. Early detection and accurate prognosis of survival rates are crucial for effective management and treatment planning. The healthcare industry requires robust tools for predicting the survival chances of cirrhosis patients. Accurate predictions can assist healthcare providers in making informed decisions about treatment options, prioritizing patients based on severity, and managing healthcare resources more effectively.
+
+## Aim of the Analysis
+
+The aim of this analysis is to develop predictive models that can accurately predict the survival status of patients with cirrhosis based on a set of clinical and laboratory variables. The analysis will involve data exploration, preprocessing, model construction, and evaluation to identify the most effective predictive models for this task. The models will be evaluated based on their accuracy, precision, recall, F1 score, and other relevant metrics to assess their performance in predicting the survival status of cirrhosis patients. 
+
+## Source of Data
+
+The data used in this analysis is sourced from a Mayo Clinic study on primary biliary cirrhosis of the liver. The dataset contains information about patients with cirrhosis, including demographic details, clinical features, and laboratory test results. The dataset includes both numeric and categorical variables, making it suitable for developing classification models to predict the survival status of patients with cirrhosis. The link to the dataset is [here](https://archive.ics.uci.edu/dataset/878/cirrhosis+patient+survival+prediction+dataset-1).
+
+
+## Data Acquisition
+
+### Load necessary libraries
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Load the necessary libraries
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(caret)
+library(psych)
+library(corrplot)
+library(randomForest)
+library(e1071)
+library(stats)
+library(pROC)
+library(ipred)
+```
+
+### Load the Data from CSV File
+```{r result='asis', echo=FALSE}
+# Load the data from the CSV file
+cirrhosis <- read.csv("data/cirrhosis.csv")
+
+# Display the first few rows of the data
+head(cirrhosis)
+```
+
+- The data is about patients with cirrhosis of the liver. It is sourced from a Mayo Clinic study on primary biliary cirrhosis of the liver.
+
+- It is loaded into a data frame named `cirrhosis`. It is a csv file with `r nrow(cirrhosis)` rows and `r ncol(cirrhosis)` columns.
+
+## Data Exploration
+
+### Summary and Structure of the Data
+```{r, result='asis', echo=FALSE}
+# Summary of the data
+summary(cirrhosis)
+
+# Structure of the data
+str(cirrhosis)
+
+# Remove the 'ID' column as it is not needed for analysis
+cirrhosis <- cirrhosis[, -1]
+```
+
+- The 'ID' column is removed as it is not relevant for analysis.
+
+- The dataset contains `r nrow(cirrhosis)` observations and `r ncol(cirrhosis)` variables.
+
+- The data has a mix of numeric and categorical variables.
+
+- The 'Status' column is the target variable, indicating the survival status of the patients.
+
+### Data Visualization using Histograms
+```{r, warning=FALSE, message=FALSE, result='asis', echo=FALSE}
+# Create a function to plot histogram for a given column
+numeric_columns <- sapply(cirrhosis, is.numeric)
+# Extract numeric columns
+numeric_data <- cirrhosis[, numeric_columns]
+
+# Create a function to plot histogram for a given column
+plot_histogram <- function(data, column_name) {
+  # Create a histogram plot
+  plot <- ggplot(data, aes_string(x = column_name)) +
+    # Add histogram with blue fill and black border
+    geom_histogram(fill = "#5091c9", color = "black") +
+    # Add labels and title
+    labs(
+      title = paste("Histogram of", column_name),
+      x = column_name, y = "Frequency"
+    ) +
+    theme_minimal()
+  # Print the plot
+  print(plot)
+}
+
+# Apply the function to each numeric column
+invisible(lapply(names(numeric_data), function(col) {
+  plot_histogram(numeric_data, col)
+}))
+```
+
+- The histograms display a range of distribution shapes for different variables, suggesting a mix of skewed and normally distributed data.
+
+- The histograms show a variety of distribution shapes, indicating a mix of skewed and normally distributed data across the different variables.
+
+- The spread of the histograms gives an indication of the range of each variable. Wide spreads can suggest high variability, while narrow spreads may indicate that values are concentrated around a particular number.
+
+- The peak of each histogram shows the mode, providing insight into the most common values within a dataset.
+
+- This suggests that normalization or standardization may be necessary to align them on a common scale for analytical purposes.
+
+- Depending on the shape of the histograms, certain variables might benefit from transformations to normalize the data, such as logarithmic or square root transformations for right-skewed data.
+
+### Detecting Outliers using Boxplots for continuous variables
+```{r, warning=FALSE, result='asis', echo=FALSE}
+# Convert 'Status' to a factor for plotting
+cirrhosis$Status <- as.factor(cirrhosis$Status)
+
+# Identify numeric features
+numeric_features <- sapply(cirrhosis, is.numeric)
+
+# Create a faceted boxplot for numeric features
+numeric_data <- cirrhosis[, numeric_features]
+
+# Convert data frame to long format for faceting
+long_data <- reshape2::melt(
+  cirrhosis,
+  id.vars = "Status",
+  measure.vars = names(numeric_data)
+)
+
+# Create faceted boxplot for numeric features
+ggplot(long_data, aes(x = Status, y = value)) +
+  # Create boxplot with outliers colored and shaped
+  geom_boxplot(outlier.colour = "#0c0a0af8", outlier.shape = 1) +
+  # Facet by variable with free y-axis scales
+  facet_wrap(~variable, scales = "free_y") +
+  # Add labels and theme
+  labs(x = "Status", y = "Value") +
+  theme_minimal() +
+  theme(
+    # Rotate x-axis labels for better readability
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text.x = element_text(size = 8)
+  )
+```
+
+- The boxplots show the distribution of numeric features by the survival status of the patients.
+
+- Several features display a significant number of outliers, suggesting variations in the dataset that may affect model accuracy. The boxplots show that the distributions of numeric variables vary greatly, indicating diverse patient characteristics. 
+  
+- Many boxplots exhibit skewness either to the right or left, indicating that most numeric variables are not symmetrically distributed. The medians of the boxplots vary across different levels of the 'Status' target variable, highlighting their potential impact on patient survival outcomes.
+
+### Detecting Outliers using Tukey's Method
+```{r, result='asis', echo=FALSE}
+# Detect outliers using Tukey's method
+outliers <- apply(numeric_data, 2, function(x) {
+  # Calculate the lower and upper bounds for outliers
+  qnt <- quantile(x, probs = c(0.25, 0.75), na.rm = TRUE)
+  # Calculate the Interquartile Range (IQR)
+  H <- 1.5 * IQR(x, na.rm = TRUE)
+  # Identify outliers based on Tukey's method
+  x[x < (qnt[1] - H) | x > (qnt[2] + H)]
+})
+
+# Count the number of outliers for each variable
+outliers_count <- sapply(outliers, length)
+
+# Display the number of outliers for each variable
+outliers_count
+```
+
+- The number of outliers detected for each numeric variable is displayed above using Tukey's method which is 1.5 times the Interquartile Range (IQR). 
+
+- IQR is a robust measure of spread that is less sensitive to outliers than the range. 
+
+- It is important to consider these outliers during data preprocessing and model building to ensure robust and accurate predictions.
+
+### Pairs Panels Visualization
+```{r, warning=FALSE, message=FALSE, result='asis', echo=FALSE}
+# Select only numeric columns for correlation analysis
+numeric_data <- cirrhosis[sapply(cirrhosis, is.numeric)]
+
+# Using pairs with panel.smooth
+pairs.panels(numeric_data,
+  # Correlation method and appearance customization
+  method = "pearson",
+  # Customize the appearance of the pairs panel
+  hist.col = "#00AFBB",
+  # Show density plots
+  density = TRUE,
+  # Show correlation ellipses
+  ellipses = TRUE,
+  # Show smooth lines
+  smooth = TRUE
+)
+```
+
+- The pairs panel visualization provides a comprehensive view of the relationships between numeric variables in the dataset. The histograms along the diagonal provide distributions for each variable, showing varied skewness and central tendencies which may suggest different underlying distributions for each variable.
+
+- The scatter plots below the diagonal indicate the relationships between pairs of variables. Some pairs show positive correlations, negative correlations, or no discernible relationship. The correlation coefficients above the diagonal numerically summarize the degree of linear relationship between pairs of variables. These coefficients range from -1 to 1, indicating strong negative to strong positive correlations respectively.
+
+- The use of ellipses in some plots visually emphasizes the strength and direction of the correlations, with tighter ellipses indicating stronger correlations. The color coding and density plots overlaying the scatter plots provide further depth, highlighting the density of data points and the gradient of relationships, which can be crucial for understanding complex interactions within the data.
+
+### Evaluation of Distribution of Survival States
+```{r, warning=FALSE, message=FALSE,result='asis', echo=FALSE}
+# Calculate the total count of each survival state
+total_count <- sum(table(cirrhosis$Status))
+
+# Create the bar plot and add percentages
+ggplot(cirrhosis, aes(x = Status, fill = Status)) +
+  geom_bar() +
+  geom_text(
+    stat = "count", aes(label = scales::percent(..count.. / total_count)),
+    # Adjust vertical position of text
+    vjust = -0.5,
+    position = position_stack(vjust = 0.5)
+  ) +
+  ggtitle("Distribution of Survival States") +
+  # Add axis labels
+  xlab("Survival State") +
+  ylab("Count") +
+  scale_fill_manual(
+    # Custom colors for each state
+    values = c("C" = "red", "CL" = "blue", "D" = "green")
+  )
+```
+
+- The bar plot above shows the distribution of survival states in the dataset. The survival states are labeled as 'C', 'CL', and 'D', representing different survival outcomes for patients with cirrhosis.
+
+- The percentage of survival stage of C is `r round(prop.table(table(cirrhosis$Status))["C"] * 100, 2)`%, CL is `r round(prop.table(table(cirrhosis$Status))["CL"] * 100, 2)`%, and D is `r round(prop.table(table(cirrhosis$Status))["D"] * 100, 2)`%. The distribution of survival states is imbalanced, with the majority of patients in the 'C' category.
+
+### Correlation Analysis
+```{r, result='asis', echo=FALSE}
+# Calculating correlation matrix for numeric variables
+correlation_matrix <- cor(numeric_data, use = "complete.obs")
+
+# Visualizing the correlation matrix
+corrplot(correlation_matrix,
+  method = "circle", type = "upper", order = "hclust",
+  tl.col = "black", tl.srt = 45
+)
+```
+
+- The correlation matrix provides insights into the relationships between numeric variables in the dataset. The correlation coefficients range from -1 to 1, indicating the strength and direction of the linear relationships between variables.
+
+- The correlation matrix is visualized using a circular plot, with the intensity of the color and the size of the circle representing the magnitude of the correlation coefficients. The variables are ordered based on hierarchical clustering, highlighting groups of variables with similar correlation patterns.
+
+- There is a strong positive correlation between some of the liver function tests, like "Bilirubin" and "Alk_Phos" (alkaline phosphatase), "SGOT" (serum glutamic-oxaloacetic transaminase), and "Copper". This is expected as these are indicators of liver function and typically move in the same direction in response to liver injury or disease.
+
+- "Albumin" appears to be negatively correlated with "Bilirubin", "Copper", and "SGOT". A high level of albumin is often found in healthy individuals, while the other three are indicators that can signify liver damage when elevated.
+
+- "Stage" of the disease shows correlations with multiple variables such as "Albumin", "Bilirubin", "Copper", and others. This implies that as the stage of liver disease progresses, these biochemical markers tend to change correspondingly.
+
+### Shapiro-Wilk Normality Test for Normality Assessment
+```{r, result='asis', echo=FALSE}
+# Shapiro-Wilk normality test for all numeric variables
+sapply(numeric_data, function(x) shapiro.test(x)$p.value)
+```
+
+- The Shapiro-Wilk normality test is used to assess the normality of the distribution of numeric variables. The p-values indicate whether the data significantly deviates from a normal distribution.
+
+- The p-values for the Shapiro-Wilk test are displayed above for each numeric variable. Low p-values suggest that the data may not be normally distributed, which can impact the choice of statistical tests and modeling techniques.
+
+- A low p-value (typically less than 0.05) suggests that the distribution of the variable is not normal.
+
+### Q-Q Plots for Normality Assessment
+```{r, warning=FALSE, message=FALSE, result='asis', echo=FALSE}
+# Generating Q-Q plots for all numeric variables
+.res <- lapply(names(numeric_data), function(feature) {
+  qqnorm(cirrhosis[[feature]], main = paste("Q-Q Plot of", feature))
+  qqline(cirrhosis[[feature]], col = "red")
+})
+```
+
+- The Q-Q plots above provide a visual assessment of the normality of the distribution of numeric variables. The points should ideally fall along the red line, indicating a normal distribution.
+
+- Deviations from the red line suggest non-normality in the data. These plots can help identify variables that may require transformation or non-parametric analysis to address non-normality.
+
+- The Q-Q plots are useful for assessing the distribution of numeric variables and identifying potential deviations from normality, which can inform data preprocessing and modeling decisions.
+
+- The Q-Q plots provide a visual representation of the distribution of each numeric variable, allowing for a quick assessment of normality assumptions.
+
+- It is important to consider the normality of data when selecting statistical tests and modeling techniques to ensure accurate and reliable results.
+
+- For features like N_Days, Age, Bilirubin, and Cholesterol, the points deviate from the straight line, suggesting that these features do not follow a normal distribution.
+
+- In some plots, such as for Bilirubin and Cholesterol, the points form a curve that tails off at the ends. This pattern suggests a heavy-tailed distribution, indicating the presence of outliers or extreme values in the data.
+
+## Data Cleaning and Preprocessing
+
+### Missing Values Identification
+```{r, result='asis', echo=FALSE}
+# Identify missing values
+missing_values <- colSums(is.na(cirrhosis))
+
+# Display the number of missing values for each column
+missing_values
+```
+
+- The missing values are identified in the dataset, with the number of missing values displayed for each column. The presence of missing values can impact the quality and reliability of the analysis and modeling.
+
+- There are `r sum(is.na(cirrhosis))` missing values in the dataset. It is important to address these missing values through imputation or removal to ensure the integrity of the data.
+
+### Imputation of Missing Values
+```{r, echo=FALSE}
+# Impute missing values for numeric columns with median
+for (col in names(cirrhosis)) {
+  if (is.numeric(cirrhosis[[col]])) {
+    cirrhosis[[col]][is.na(cirrhosis[[col]])] <- median(
+      cirrhosis[[col]],
+      na.rm = TRUE
+    )
+  }
+}
+
+# Impute missing values for categorical columns with mode
+mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+# Impute missing values for categorical columns with mode
+for (col in names(cirrhosis)) {
+  if (is.character(cirrhosis[[col]])) {
+    cirrhosis[[col]][is.na(cirrhosis[[col]])] <- mode(cirrhosis[[col]])
+  }
+}
+
+# Structure of the data after imputation
+str(cirrhosis)
+```
+
+- Missing values are imputed in the dataset using the median for numeric columns and the mode for categorical columns. Imputation helps maintain the integrity of the data and ensures that all variables have complete information for analysis and modeling.
+
+- Mean imputation involves replacing missing values in numeric data with the mean value of the respective variable. This technique is widely used because it preserves the sample mean, making it a reasonable choice for maintaining the overall distribution and central tendency of the data.
+
+- Mode imputation involves replacing missing values in categorical data with the most frequent value (mode) of the respective variable. This technique is suitable for categorical variables with a limited number of unique values and helps maintain the distribution of the data.
+
+- After imputation, there are no missing values in the dataset. The structure of the data is displayed to confirm that all missing values have been addressed through imputation.
+
+- I didn't convert the categorical columns to numeric before imputation because converting categorical variables into numeric formats before imputation (such as assigning numbers to categories) can introduce arbitrary ordinality or false numeric relationships, which might not exist naturally within the data. 
+
+- For instance, converting "red", "blue", and "green" into 1, 2, and 3 might imply that green is somehow "higher" or "more" than red, which is semantically incorrect and can mislead the analysis. By keeping the data categorical and using mode imputation, we can maintain the integrity and meaning of the data.
+
+### One-Hot Encoding for Categorical Variables
+```{r, result='asis', echo=FALSE}
+# Convert categorical character columns to factors
+cirrhosis$Drug <- factor(cirrhosis$Drug)
+cirrhosis$Sex <- factor(cirrhosis$Sex)
+cirrhosis$Ascites <- factor(cirrhosis$Ascites)
+cirrhosis$Hepatomegaly <- factor(cirrhosis$Hepatomegaly)
+cirrhosis$Spiders <- factor(cirrhosis$Spiders)
+cirrhosis$Edema <- factor(cirrhosis$Edema)
+
+# Apply one-hot encoding
+cirrhosis <- cbind(cirrhosis, model.matrix(
+  ~ Drug + Sex + Ascites + Hepatomegaly + Spiders + Edema - 1,
+  data = cirrhosis
+))
+
+# Removing original factor columns after encoding
+cirrhosis <- cirrhosis[, !names(cirrhosis) %in% c(
+  "Drug", "Sex", "Ascites", "Hepatomegaly", "Spiders", "Edema"
+)]
+
+# Structure of the data after encoding
+str(cirrhosis)
+```
+ 
+- One-hot encoding is applied to the categorical variables in the dataset to convert them into a format suitable for modeling. This technique creates binary columns for each category within a categorical variable, allowing the model to interpret the categorical data effectively.
+
+- It is aslo called dummy encoding or one-of-K encoding. It is a technique used to convert categorical variables into a format that can be provided to ML algorithms to improve model performance.
+
+- For my dataset, I used one-hot encoding to convert the categorical variables into binary columns because it is a common method for handling categorical variables in machine learning models. By converting categorical variables into binary columns, we can represent each category as a separate feature, allowing the model to capture the information encoded in the categories.
+
+- I didn't apply one-hot encoding to the 'Status' column because it is the target variable, and one-hot encoding would create unnecessary additional columns for each category, which is not required for the target variable in classification tasks.
+
+### Skewness Identification
+```{r, result='asis', echo=FALSE}
+# Check the skewness of numeric columns
+sapply(cirrhosis[, sapply(cirrhosis, is.numeric)], skewness)
+```
+
+- Skewness is a measure of the asymmetry of the distribution of a variable. Positive skewness indicates a right-skewed distribution, while negative skewness indicates a left-skewed distribution.
+
+- Positive skewness means that the right tail of the distribution is longer or fatter than the left tail, while negative skewness means that the left tail is longer or fatter than the right tail. 
+
+- A value > 0 indicates positive skew, a value < 0 indicates negative skew, and values close to 0 suggest a symmetric distribution.
+
+- The skewness of numeric columns in the dataset is displayed above. Skewness correction is necessary to ensure that the data is normally distributed, which is a common assumption in many statistical tests and machine learning algorithms.
+
+- The skewness of the numeric columns in the dataset is assessed to identify variables that may require transformation to correct skewness. Skewness correction is important for ensuring that the data meets the assumptions of statistical tests and modeling techniques.
+
+### Transformation of Skewed Variables
+```{r, result='asis', echo=FALSE}
+# Define the columns to transform
+cols_to_transform <- c(
+  "Bilirubin", "Cholesterol", "Copper", "Alk_Phos", "SGOT",
+  "Tryglicerides", "Prothrombin"
+)
+
+# Loop over the columns and apply the log transformation
+for (col in cols_to_transform) {
+  # Apply the log transformation
+  cirrhosis[[col]] <- log(cirrhosis[[col]] + 1)
+}
+
+# Apply square root transformation for 'platelets' column
+cirrhosis$Platelets <- sqrt(cirrhosis$Platelets)
+
+# Check the skewness of numeric columns after transformations
+sapply(cirrhosis[, sapply(cirrhosis, is.numeric)], skewness)
+```
+
+- The log transformation is applied to the specified numeric columns to correct skewness and normalize the data. The log transformation is commonly used to stabilize variance and improve the normality of the data.
+
+- The square root transformation is applied to the 'Platelets' column to address skewness and normalize the data. The square root transformation is useful for reducing the impact of extreme values and improving the distribution of the data.
+
+- The skewness of the numeric columns is checked after the transformations to ensure that the data is closer to a normal distribution. Skewness correction is essential for preparing the data for statistical analysis and machine learning modeling.
+
+- Binary variables are typically represented as 0 or 1, and they do not require transformation for skewness correction or standardization. But if applied to binary variables, the log transformation would not be meaningful as it would not change the distribution of the data and we should revert them back to their original scale.
+
+### Standardization of Numeric Data
+```{r, result='asis', echo=FALSE}
+# Make a copy of the dataset before standardization
+cirrhosis_standardized <- cirrhosis
+
+# List numeric columns only (excluding the 'Status' which is factor)
+numeric_cols <- sapply(cirrhosis_standardized, is.numeric)
+
+# Standardize numeric columns manually without using scale() function
+for (col in names(cirrhosis_standardized)[numeric_cols]) {
+  cirrhosis_standardized[[col]] <- (cirrhosis_standardized[[col]] - mean(
+    cirrhosis_standardized[[col]]
+  )) / sd(cirrhosis_standardized[[col]])
+}
+
+# Summary of the dataset after standardization
+summary(cirrhosis_standardized)
+
+# Rebind the 'Status' column to the standardized dataset
+cirrhosis_standardized$Status <- cirrhosis$Status
+
+# Check the structure of the standardized dataset
+str(cirrhosis_standardized)
+```
+
+- Standardization is applied to the numeric columns in the dataset to ensure that all variables are on a common scale. Standardization is important for many machine learning algorithms that are sensitive to the scale of the input features.
+
+- Standardization involves transforming the data so that it has a mean of 0 and a standard deviation of 1. This process helps to align the variables on a common scale, making it easier to compare and interpret their values.
+
+- The summary of the dataset is rechecked to confirm that the standardization process has been applied successfully. The mean and standard deviation of the numeric variables should be close to 0 and 1, respectively, after standardization.
+
+- Logistic Regression and SVM: These models often benefit from standardization, especially SVM, which is sensitive to the magnitude of input features and can behave unpredictably if features are not on the same scale. Standardization helps these algorithms converge faster and perform better by transforming the data into a scale where the features contribute equally.
+
+- Random Forest: This model is generally less sensitive to the scale of the features because it uses rule-based splitting. Thus, normalization or standardization is not typically necessary for tree-based models like random forests.
+  
+### Reverting Binary Variables to Original Scale
+```{r, result='asis', echo=FALSE}
+# Define binary variables for reversion
+binary_vars <- c(
+  "DrugD-penicillamine", "DrugPlacebo", "SexM", "AscitesY",
+  "HepatomegalyY", "SpidersY", "EdemaY", "EdemaS"
+)
+
+# Revert binary variables to original scale
+cirrhosis_standardized[binary_vars] <- ifelse(
+  cirrhosis_standardized[binary_vars] <= 0, 0, 1
+)
+
+# Check summary again for these binary variables
+summary(cirrhosis_standardized)
+```
+
+- After standardization of the numeric variables, the binary variables are reverted to their original scale by converting the standardized values back to 0 or 1. This step ensures that the binary variables are in their original format for modeling and interpretation.
+
+- The summary of the binary variables is checked to confirm that the values have been successfully reverted to 0 or 1. The summary should show the counts of 0s and 1s for each binary variable, indicating that the reversion process was completed accurately.
+
+### Dimensionality Reduction using PCA
+```{r, result='asis', echo=FALSE}
+# Standardizing data (important for PCA)
+cirrhosis_standardized_numeric <- cirrhosis_standardized[, sapply(
+  cirrhosis_standardized, is.numeric
+)]
+
+# Apply PCA to the standardized numeric data
+pca_result <- prcomp(cirrhosis_standardized_numeric, scale = TRUE)
+
+# Scree plot to visualize explained variance
+plot(pca_result, type = "l", main = "Scree Plot for PCA")
+
+# Biplot to visualize the relationship between variables and components
+biplot(pca_result, scale = 0)
+
+# Summary of PCA results
+summary(pca_result)
+```
+
+- Principal Component Analysis (PCA) is applied to the standardized numeric data to reduce the dimensionality of the dataset and identify the most important components that explain the variance in the data.
+
+- The scree plot above shows the explained variance of each principal component, helping to determine the number of components to retain for analysis. The scree plot is useful for identifying the principal components that capture the most variance in the data.
+
+- The biplot displays the relationship between the principal components and the original variables. It helps visualize the contribution of each variable to the principal components and identify patterns in the data.
+
+- PCA is a powerful technique for dimensionality reduction and feature extraction, allowing for the identification of the most important components that explain the variance in the data.
+
+## Model Construction
+
+### Splitting the Data into Training and Testing Sets
+```{r, result='asis', echo=FALSE}
+# Split the data into training and testing sets
+set.seed(123)
+
+# Shuffle the rows to randomize the data
+cirrhosis_standardized <- cirrhosis_standardized[sample(
+  nrow(cirrhosis_standardized)
+), ]
+
+# Split the data into training 80% and testing 20%
+train_index <- 1:round(0.8 * nrow(cirrhosis_standardized))
+
+# Create training and testing datasets
+train_data <- cirrhosis_standardized[train_index, ]
+validation_data <- cirrhosis_standardized[-train_index, ]
+
+# Check the dimensions of the training and testing sets
+nrow(train_data)
+ncol(train_data)
+nrow(validation_data)
+ncol(validation_data)
+```
+
+- The data is split into training and validation sets to train the model on a subset of the data and evaluate its performance on a separate subset. The training set contains 80% of the observations, while the validation set contains the remaining 20%.
+
+- The data is shuffled to randomize the order of the observations before splitting to ensure that the training and validation sets are representative of the overall dataset.
+
+- The dimensions of the training and validation sets are checked to confirm that the data has been split correctly and that the training set contains 80% of the observations.
+
+- The training data is `r nrow(train_data)` rows by `r ncol(train_data)` columns, and the validation data is `r nrow(validation_data)` rows by `r ncol(validation_data)` columns.
+
+### Logistic Regression Model
+```{r, result='asis', echo=FALSE}
+# Set up cross-validation with 10 folds
+train_control <- trainControl(
+  method = "cv", number = 10,
+  savePredictions = "final", classProbs = TRUE
+)
+
+# Train a model using multinomial logistic regression
+multinom_model <- train(Status ~ .,
+  data = train_data,
+  method = "multinom", trControl = train_control, trace = FALSE
+)
+
+# Summary of the model
+print(multinom_model)
+
+# Evaluate the model for linear regression
+lr_predictions <- predict(multinom_model, newdata = validation_data)
+
+# Generate a confusion matrix for linear regression
+confusion_matrix_lr <- confusionMatrix(lr_predictions, validation_data$Status)
+
+# Print the confusion matrix
+print(confusion_matrix_lr)
+```
+
+- A multinomial logistic regression model is trained on the training data to predict the survival status of patients with cirrhosis. The model is built using the `multinom` function from the `nnet` package.
+
+- The Accuracy of the model is `r round(confusion_matrix_lr$overall["Accuracy"], 2)` which indicates the proportion of correct predictions made by the model.
+
+- The CI of the model is `r round(confusion_matrix_lr$overall["AccuracyLower"], 2)` to `r round(confusion_matrix_lr$overall["AccuracyUpper"], 2)` which provides a range of values within which the true accuracy is likely to fall.
+
+- The confusion matrix shows the number of correct and incorrect predictions broken down by each class. For example, the model correctly predicted 43 instances of class C, but incorrectly predicted 10 instances of class D as class C.
+
+- A Kappa of 1 indicates perfect agreement, while a Kappa of 0 indicates agreement equivalent to chance. A Kappa of 0.6335 suggests moderate agreement.
+
+### Support Vector Machine (SVM) Model
+```{r, result='asis', echo=FALSE}
+# SVM model using the e1071 package
+svm_model <- train(Status ~ .,
+  data = train_data,
+  method = "svmRadial", trControl = train_control, trace = FALSE
+)
+
+# Summary of the model
+print(svm_model)
+
+# Evaluate the model for SVM
+svm_predictions <- predict(svm_model, newdata = validation_data)
+
+# Generate a confusion matrix
+confusion_matrix_svm <- confusionMatrix(svm_predictions, validation_data$Status)
+
+# Print the confusion matrix
+print(confusion_matrix_svm)
+```
+
+- A Support Vector Machine (SVM) model is trained on the training data to predict the survival status of patients with cirrhosis. The model is built using the `svmRadial` method from the `e1071` package.
+
+- The Accuracy of the model is `r round(confusion_matrix_svm$overall["Accuracy"], 2)` which indicates the proportion of correct predictions made by the model.
+
+- The CI of the model is `r round(confusion_matrix_svm$overall["AccuracyLower"], 2)` to `r round(confusion_matrix_svm$overall["AccuracyUpper"], 2)` which provides a range of values within which the true accuracy is likely to fall.
+
+- This table shows the number of correct and incorrect predictions made by the model, broken down by each class. For example, the model correctly predicted 43 instances of class C, but incorrectly predicted 10 instances of class D as class C.
+
+- The very small p-value (3.651e-07) suggests that the model's accuracy is significantly better than the No Information Rate.
+
+### Random Forest Model
+```{r, warning=FALSE, message=FALSE, result='asis', echo=FALSE}
+# Prepare training control
+train_control <- trainControl(
+  method = "cv",
+  # Number of folds in cross-validation
+  number = 10,
+  savePredictions = "final",
+  classProbs = TRUE,
+  # Turn off training messages for cleaner output
+  verboseIter = FALSE
+)
+
+# Define a tuning grid for Random Forest specifically with 'mtry'
+tuning_grid <- expand.grid(
+  mtry = c(sqrt(ncol(train_data)), ncol(train_data) / 3, ncol(train_data) / 2)
+)
+
+# Random forest model using the randomForest package
+rf_model <- train(Status ~ .,
+  data = train_data, method = "rf",
+  trControl = train_control, trace = FALSE,
+  tuneGrid = tuning_grid,
+  metric = "Accuracy"
+)
+
+# Summary of the model
+print(rf_model)
+
+# Evaluate the model
+rf_predictions <- predict(rf_model, newdata = validation_data)
+
+# Generate a confusion matrix
+confusion_matrix_rf <- confusionMatrix(rf_predictions, validation_data$Status)
+
+# Print the confusion matrix
+print(confusion_matrix_rf)
+```
+
+- A Random Forest model is trained on the training data to predict the survival status of patients with cirrhosis. The model is built using the `rf` method from the `randomForest` package.
+
+- The summary of the model provides information about the number of trees, mtry, and other details of the Random Forest model. This information helps assess the complexity and performance of the model.
+
+- The Accuracy of the model is `r round(confusion_matrix_rf$overall["Accuracy"], 2)` which indicates the proportion of correct predictions made by the model.
+
+- The CI of the model is `r round(confusion_matrix_rf$overall["AccuracyLower"], 2)` to `r round(confusion_matrix_rf$overall["AccuracyUpper"], 2)` which provides a range of values within which the true accuracy is likely to fall.
+
+- Predictions are made on the validation data using the trained Random Forest model, and a confusion matrix is generated to evaluate the model's performance. The confusion matrix shows the counts of true positive, true negative, false positive, and false negative predictions.
+
+- The Kappa statistic measures the agreement between the observed and predicted classes, with a value of 1 indicating perfect agreement and 0 indicating agreement equivalent to chance. A Kappa of 0.5925 suggests moderate agreement between the predicted and observed classes.
+
+## Model Evaluation
+
+### ROC Curve and AUC Calculation for Logistic Regression Model
+```{r, result='asis', echo=FALSE}
+# Predict class probabilities for the logistic regression model
+prob_predictions <- predict(multinom_model,
+  newdata = validation_data, type = "prob"
+)
+
+# Compute ROC curve for each class in logistic regression model
+roc_list <- list()
+class_levels <- levels(validation_data$Status)
+
+for (class in class_levels) {
+  true_values <- as.numeric(validation_data$Status == class)
+  roc_curve <- roc(true_values, prob_predictions[, class],
+    plot = FALSE
+  )
+  roc_list[[class]] <- roc_curve
+  print(paste("AUC for", class, "=", auc(roc_curve)))
+}
+
+# Plot ROC curves
+colors <- rainbow(length(class_levels))
+plot(roc_list[[1]],
+  col = colors[1],
+  main = "Logistic Regression: Comparison of ROC Curves"
+)
+for (i in 2:length(class_levels)) {
+  plot(roc_list[[i]], add = TRUE, col = colors[i])
+}
+legend("bottomright", class_levels, fill = colors)
+```
+
+- The ROC curves for each class in the logistic regression model are plotted to visualize the trade-off between true positive rate (sensitivity) and false positive rate (1-specificity) for different classification thresholds.
+
+- The Area Under the Curve (AUC) is calculated for each class, providing a measure of the model's ability to distinguish between the positive and negative classes. A higher AUC value indicates better performance in terms of classification accuracy.
+
+- The ROC curves and AUC values help evaluate the performance of the logistic regression model in predicting the survival status of patients with cirrhosis.
+
+- AUC for C is `r round(auc(roc_list[[1]]), 2)`, for CL is `r round(auc(roc_list[[2]]), 2)`, and for D is `r round(auc(roc_list[[3]]), 2)`.
+
+### ROC Curve and AUC for SVM Model
+```{r, result='asis', echo=FALSE}
+# Predict class probabilities for the SVM model
+svm_prob_predictions <- predict(svm_model,
+  newdata = validation_data, type = "prob"
+)
+
+# Compute ROC curve for each class in SVM model
+svm_roc_list <- list()
+class_levels <- levels(validation_data$Status)
+
+# Calculate AUC for each class
+for (class in class_levels) {
+  true_values_svm <- as.numeric(validation_data$Status == class)
+  roc_curve_svm <- roc(true_values_svm, svm_prob_predictions[, class],
+    plot = FALSE
+  )
+  svm_roc_list[[class]] <- roc_curve_svm
+  print(paste("SVM AUC for", class, "=", auc(roc_curve_svm)))
+}
+
+# Plot ROC curves
+colors <- rainbow(length(class_levels))
+plot(svm_roc_list[[1]], col = colors[1], main = "SVM: Comparison of ROC Curves")
+# Loop over the remaining classes to add their ROC curves to the plot
+for (i in 2:length(class_levels)) {
+  plot(svm_roc_list[[i]], add = TRUE, col = colors[i])
+}
+
+# Display the legend
+legend("bottomright", class_levels, fill = colors)
+```
+
+- The ROC curves for each class in the SVM model are plotted to visualize the model's performance in distinguishing between the positive and negative classes.
+
+- The Area Under the Curve (AUC) is calculated for each class, providing a measure of the model's ability to classify the survival status of patients with cirrhosis.
+
+- The ROC curves and AUC values help evaluate the performance of the SVM model in predicting the survival status of patients with cirrhosis.
+
+- AUC for C is `r round(auc(svm_roc_list[[1]]), 2)`, for CL is `r round(auc(svm_roc_list[[2]]), 2)`, and for D is `r round(auc(svm_roc_list[[3]]), 2)`.
+
+### ROC Curve and AUC for Random Forest Model
+```{r, result='asis', echo=FALSE}
+# Predict class probabilities for the Random Forest model
+rf_prob_predictions <- predict(rf_model,
+  newdata = validation_data, type = "prob"
+)
+
+# Compute ROC curve for each class in Random Forest model
+rf_roc_list <- list()
+class_levels <- levels(validation_data$Status)
+
+# Calculate AUC for each class
+for (class in class_levels) {
+  true_values_rf <- as.numeric(validation_data$Status == class)
+  roc_curve_rf <- roc(true_values_rf, rf_prob_predictions[, class],
+    plot = FALSE
+  )
+  rf_roc_list[[class]] <- roc_curve_rf
+  print(paste("Random Forest AUC for", class, "=", auc(roc_curve_rf)))
+}
+
+# Plot ROC curves
+colors <- rainbow(length(class_levels))
+plot(rf_roc_list[[1]],
+  col = colors[1],
+  main = "Random Forest: Comparison of ROC Curves"
+)
+for (i in 2:length(class_levels)) {
+  plot(rf_roc_list[[i]], add = TRUE, col = colors[i])
+}
+
+# Display the legend
+legend("bottomright", class_levels, fill = colors)
+```
+
+- The ROC curves for each class in the Random Forest model are plotted to visualize the model's performance in distinguishing between the positive and negative classes.
+
+- The Area Under the Curve (AUC) is calculated for each class, providing a measure of the model's ability to classify the survival status of patients with cirrhosis.
+
+- The ROC curves and AUC values help evaluate the performance of the Random Forest model in predicting the survival status of patients with cirrhosis.
+
+- AUC for C is `r round(auc(rf_roc_list[[1]]), 2)`, for CL is `r round(auc(rf_roc_list[[2]]), 2)`, and for D is `r round(auc(rf_roc_list[[3]]), 2)`.
+
+### Precision, Recall, and F1-Score Calculation
+```{r, result='asis', echo=FALSE}
+# Generate a confusion matrix for Logistic Regression
+cm_lr <- confusionMatrix(lr_predictions, validation_data$Status)
+
+# Calculate macro-averaged precision, recall, and F1 score
+macro_precision <- mean(cm_lr$byClass[, "Precision"], na.rm = TRUE)
+macro_recall <- mean(cm_lr$byClass[, "Recall"], na.rm = TRUE)
+macro_F1 <- mean(cm_lr$byClass[, "F1"], na.rm = TRUE)
+
+
+# Print the results for Logistic Regression
+print(paste("Macro-averaged Precision:", macro_precision))
+print(paste("Macro-averaged Recall:", macro_recall))
+print(paste("Macro-averaged F1 Score:", macro_F1))
+
+# Generate a confusion matrix for SVM
+cm_svm <- confusionMatrix(svm_predictions, validation_data$Status)
+
+# Calculate macro-averaged precision, recall, and F1 score for SVM
+macro_precision_svm <- mean(cm_svm$byClass[, "Precision"], na.rm = TRUE)
+macro_recall_svm <- mean(cm_svm$byClass[, "Recall"], na.rm = TRUE)
+macro_F1_svm <- mean(cm_svm$byClass[, "F1"], na.rm = TRUE)
+
+# Print the results for SVM
+print(paste("SVM Macro-averaged Precision:", macro_precision_svm))
+print(paste("SVM Macro-averaged Recall:", macro_recall_svm))
+print(paste("SVM Macro-averaged F1 Score:", macro_F1_svm))
+
+# Generate a confusion matrix for Random Forest
+cm_rf <- confusionMatrix(rf_predictions, validation_data$Status)
+
+# Calculate macro-averaged precision, recall, and F1 score for Random Forest
+macro_precision_rf <- mean(cm_rf$byClass[, "Precision"], na.rm = TRUE)
+macro_recall_rf <- mean(cm_rf$byClass[, "Recall"], na.rm = TRUE)
+macro_F1_rf <- mean(cm_rf$byClass[, "F1"], na.rm = TRUE)
+
+# Print the results for Random Forest
+print(paste("Random Forest Macro-averaged Precision:", macro_precision_rf))
+print(paste("Random Forest Macro-averaged Recall:", macro_recall_rf))
+print(paste("Random Forest Macro-averaged F1 Score:", macro_F1_rf))
+```
+
+- I used macro-averaged Precision, Recall, and F1 Score to evaluate the performance of the models. Macro-averaged metrics calculate the average of Precision, Recall, and F1 Score across all classes, giving equal weight to each class.
+
+- The Macro-averaged Precision for both Logistic Regression and SVM is the same (approximately 0.8315), suggesting that when these models predict a patient's status, they are correct about 83.15% of the time across the different classes.
+
+- The Random Forest model has a slightly lower Macro-averaged Precision of approximately 0.7951, meaning it is correct 79.51% of the time when predicting a patient's status.
+
+- The Recall (or Sensitivity) for both Logistic Regression and SVM is also the same (approximately 0.5457), indicating that these models correctly identify 54.57% of all positive instances across the different classes.
+
+- The Random Forest model's Recall is slightly lower, at approximately 0.5359, which means it correctly identifies 53.59% of all positive instances.
+
+- The F1 Score is a harmonic mean of Precision and Recall and is a measure of a test's accuracy. Both Logistic Regression and SVM have a Macro-averaged F1 Score of approximately 0.8197, which is quite high, suggesting a good balance between Precision and Recall.
+
+- Random Forest has a slightly lower F1 Score of approximately 0.7994, but it is still relatively high, indicating a reasonable balance between Precision and Recall for this model as well.
+
+- Overall, the Logistic Regression and SVM models are performing similarly in terms of Precision, Recall, and F1 Score, and both are performing slightly better than the Random Forest model based on these metrics.
+
+### Evaluation of fit using holdout method
+```{r, result='asis', echo=FALSE}
+# Set up the train control for the holdout method
+train_control_holdout <- trainControl(
+  method = "LGOCV", p = 0.8,
+  savePredictions = "final", classProbs = TRUE
+)
+
+# Train the models using the holdout method
+multinom_model_holdout <- train(Status ~ .,
+  data = train_data,
+  method = "multinom", trControl = train_control_holdout, trace = FALSE
+)
+
+svm_model_holdout <- train(Status ~ .,
+  data = train_data,
+  method = "svmRadial", trControl = train_control_holdout, trace = FALSE
+)
+
+rf_model_holdout <- train(Status ~ .,
+  data = train_data,
+  method = "rf", trControl = train_control_holdout, trace = FALSE
+)
+
+# Summarize the models
+print(multinom_model_holdout)
+print(svm_model_holdout)
+print(rf_model_holdout)
+
+# Evaluate the models on the validation data
+multinom_predictions_holdout <- predict(multinom_model_holdout,
+  newdata = validation_data
+)
+svm_predictions_holdout <- predict(svm_model_holdout, newdata = validation_data)
+rf_predictions_holdout <- predict(rf_model_holdout, newdata = validation_data)
+
+# Generate confusion matrices for the models
+confusion_matrix_multinom_holdout <- confusionMatrix(
+  multinom_predictions_holdout,
+  validation_data$Status
+)
+confusion_matrix_svm_holdout <- confusionMatrix(
+  svm_predictions_holdout,
+  validation_data$Status
+)
+confusion_matrix_rf_holdout <- confusionMatrix(
+  rf_predictions_holdout,
+  validation_data$Status
+)
+
+# Print the confusion matrices
+print(confusion_matrix_multinom_holdout)
+print(confusion_matrix_svm_holdout)
+print(confusion_matrix_rf_holdout)
+```
+
+- The models are evaluated using the holdout method, where 80% of the data is used for training, and 20% is used for validation. This method helps assess the performance of the models on unseen data and provides insights into their generalization ability.
+
+- The models are trained using the holdout method, and their performance is evaluated on the validation data. The confusion matrices provide information about the number of correct and incorrect predictions made by each model for each class.
+
+- The holdout method is a simple and effective way to evaluate the performance of machine learning models on unseen data. It helps assess the models' ability to generalize to new data and provides a more realistic estimate of their performance.
+
+- The confusion matrices show the number of correct and incorrect predictions made by each model for each class. This information helps evaluate the models' performance in predicting the survival status of patients with cirrhosis.
+
+- Multinomial Logistic Regression showed a good balance between sensitivity and specificity, indicating it was effective at distinguishing between classes but might struggle with the rare class CL.
+ 
+- Support Vector Machine showed slightly better overall accuracy and kappa scores, suggesting it may be more effective at generalizing over the given dataset.
+
+- Random Forest showed similar accuracy to SVM but with slightly lower kappa, indicating less agreement between the predictions and actual classifications after adjusting for chance.
+
+### K-Fold Cross Validation
+```{r, result='asis', echo=FALSE}
+# Set up cross-validation with 10 folds
+train_control_cv <- trainControl(
+  method = "cv", number = 10,
+  savePredictions = "final", classProbs = TRUE
+)
+
+# Train the models using cross-validation
+multinom_model_cv <- train(Status ~ .,
+  data = train_data,
+  method = "multinom", trControl = train_control_cv, trace = FALSE
+)
+
+svm_model_cv <- train(Status ~ .,
+  data = train_data,
+  method = "svmRadial", trControl = train_control_cv, trace = FALSE
+)
+
+rf_model_cv <- train(Status ~ .,
+  data = train_data,
+  method = "rf", trControl = train_control_cv, trace = FALSE
+)
+
+# Summarize the models
+print(multinom_model_cv)
+print(svm_model_cv)
+print(rf_model_cv)
+```
+
+- K-fold cross-validation is performed to evaluate the performance of the models using multiple train-test splits. This technique helps assess the generalization ability of the models and provides more reliable estimates of performance.
+
+- The Penalized Multinomial Regression model had an accuracy of approximately 0.737 with a Kappa statistic of 0.494 when the decay parameter was set to 0.1. This suggests a moderate level of agreement between the model's predictions and the actual values, beyond what would be expected by chance.
+
+- The Support Vector Machines (SVM) model with a Radial Basis Function Kernel had an accuracy of approximately 0.740 and a Kappa statistic of 0.493 when the cost parameter (C) was set to 1. This indicates a slightly better performance than the Penalized Multinomial Regression model.
+
+- The Random Forest model had the highest accuracy of approximately 0.754 and a Kappa statistic of 0.525 when the number of variables tried at each split (mtry) was set to 11. This suggests that the Random Forest model performed the best among the three models.
+
+- All models were evaluated using 10-fold cross-validation, which is a robust method for estimating the performance of a model on unseen data.
+
+- All models perform relatively well, but the Random Forest model seems to be the most promising in terms of both accuracy and consistency. This might suggest its better capability at handling the complexities and non-linear relationships possibly present in the cirrhosis dataset.
+
+### Model Comparison and Failure Analysis
+```{r, result='asis', echo=FALSE}
+# Compare the models based on accuracy
+predictions_logreg <- predict(multinom_model, newdata = validation_data)
+
+# Create a data frame for comparison
+results_logreg <- data.frame(
+  Actual = validation_data$Status,
+  Predicted = predictions_logreg
+)
+
+# Identifying misclassified cases
+results_logreg$Correct <- results_logreg$Actual == results_logreg$Predicted
+misclassified_logreg <- results_logreg[results_logreg$Correct == FALSE, ]
+
+# Summary of misclassified cases
+summary(misclassified_logreg)
+table(misclassified_logreg$Actual, misclassified_logreg$Predicted)
+```
+
+- The Multinomial Logistic Regression model is evaluated based on its accuracy in predicting the survival status of patients with cirrhosis. The model's predictions are compared to the actual outcomes, and misclassified cases are identified to assess the model's performance.
+
+- The summary of misclassified cases provides information about the number of false positive and false negative predictions made by the model. This helps identify areas where the model may be misclassifying the survival status of patients with cirrhosis.
+
+- The model misclassified a total of 15 cases. Incorrectly predicted 4 cases as 'C' that were not 'C'. Missed predicting any correct 'CL' cases and misclassified 1 as another category. Incorrectly predicted 10 'D' cases as other categories.
+
+```{r, result='asis', echo=FALSE}
+# Compare the models based on accuracy
+predictions_svm <- predict(svm_model, newdata = validation_data)
+
+# Create a data frame for comparison
+results_svm <- data.frame(
+  Actual = validation_data$Status,
+  Predicted = predictions_svm
+)
+
+# Identifying misclassified cases
+results_svm$Correct <- results_svm$Actual == results_svm$Predicted
+misclassified_svm <- results_svm[results_svm$Correct == FALSE, ]
+
+# Summary of misclassified cases
+summary(misclassified_svm)
+table(misclassified_svm$Actual, misclassified_svm$Predicted)
+```
+
+- The Support Vector Machine (SVM) model is evaluated based on its accuracy in predicting the survival status of patients with cirrhosis. The model's predictions are compared to the actual outcomes, and misclassified cases are identified to assess the model's performance.
+
+- The summary of misclassified cases provides information about the number of false positive and false negative predictions made by the model. This helps identify areas where the model may be misclassifying the survival status of patients with cirrhosis.
+
+- The model misclassified a total of 15 cases similarly to the Logistic Regression model. Incorrectly predicted 4 cases as 'C' that were not 'C'. Missed predicting any correct 'CL' cases and misclassified 1 as another category. Incorrectly predicted 10 'D' cases as other categories.
+
+```{r, result='asis', echo=FALSE}
+# Compare the models based on accuracy
+predictions_rf <- predict(rf_model, newdata = validation_data)
+
+# Create a data frame for comparison
+results_rf <- data.frame(
+  Actual = validation_data$Status,
+  Predicted = predictions_rf
+)
+
+# Identifying misclassified cases
+results_rf$Correct <- results_rf$Actual == results_rf$Predicted
+misclassified_rf <- results_rf[results_rf$Correct == FALSE, ]
+
+# Summary of misclassified cases
+summary(misclassified_rf)
+table(misclassified_rf$Actual, misclassified_rf$Predicted)
+```
+
+- The Random Forest model is evaluated based on its accuracy in predicting the survival status of patients with cirrhosis. The model's predictions are compared to the actual outcomes, and misclassified cases are identified to assess the model's performance.
+
+- The summary of misclassified cases provides information about the number of false positive and false negative predictions made by the model. This helps identify areas where the model may be misclassifying the survival status of patients with cirrhosis.
+
+- The model misclassified a total of 17 cases. Incorrectly predicted 8 cases as 'C' that were not 'C'. Missed predicting any correct 'CL' cases and misclassified 1 as another category. Incorrectly predicted 8 'D' cases as other categories.
+
+## Model Tuning and Performance Improvement
+
+### Hyperparameter Tuning
+```{r, result='asis', echo=FALSE}
+# Setup train control for cross-validation
+train_control <- trainControl(
+  method = "cv", number = 10,
+  savePredictions = "final", classProbs = TRUE, verboseIter = FALSE
+)
+
+# Define the grid for hyperparameters
+grid <- expand.grid(decay = c(0, 0.1, 0.01, 0.001))
+
+# Train the model with hyperparameter tuning
+multinom_model <- train(Status ~ .,
+  data = train_data, method = "multinom",
+  trControl = train_control, tuneGrid = grid, trace = FALSE
+)
+
+# Summarize the results
+print(multinom_model)
+```
+
+- Hyperparameter tuning is performed to optimize the model's performance by selecting the best hyperparameters that minimize the error rate. This process helps improve the model's accuracy and generalization ability by fine-tuning the model's parameters.
+
+- The hyperparameters are tuned using cross-validation to evaluate the model's performance on different subsets of the training data. The grid of hyperparameters is defined, and the model is trained with hyperparameter tuning to find the best combination of parameters.
+
+- The 'decay' was varied over several values (0, 0.001, 0.01, 0.1). The decay value of 0.1 was selected based on the highest accuracy obtained from the cross-validation process.
+
+- The model showed improvement in Kappa and Accuracy with tuned parameters, indicating better generalization performance on unseen data.
+
+```{r, warning=FALSE, message=FALSE, result='asis', echo=FALSE}
+# Define the tuning grid for the SVM model
+svm_grid <- expand.grid(
+  sigma = c(0.001, 0.01, 0.1),
+  C = c(1, 10, 100)
+)
+
+# Train the SVM model with hyperparameter tuning
+svm_model <- train(Status ~ .,
+  data = train_data, method = "svmRadial",
+  trControl = train_control, tuneGrid = svm_grid, trace = FALSE,
+  maxit = 10000
+)
+
+# Summarize the results
+print(svm_model)
+```
+
+- Hyperparameter tuning is performed on the SVM model to optimize the model's performance by selecting the best hyperparameters that minimize the error rate. The tuning grid is defined with different values for the cost parameter (C) and the radial basis function kernel parameter (sigma).
+
+- The SVM model is trained with hyperparameter tuning using cross-validation to find the best combination of hyperparameters that improve the model's accuracy and generalization ability.
+
+- Variations included combinations of sigma (0.001, 0.01, 0.1) and C (1, 10, 100). The best performance was achieved with sigma = 0.01 and C = 1, as these settings provided the highest accuracy.
+
+- The tuning detailed the effects of both cost and kernel parameters on SVM's ability to classify correctly, enhancing accuracy and reducing overfitting.
+
+```{r, result='asis', echo=FALSE}
+# Define a tuning grid for Random Forest specifically with 'mtry'
+tuning_grid <- expand.grid(
+  mtry = c(sqrt(ncol(train_data)), ncol(train_data) / 3, ncol(train_data) / 2)
+)
+
+# Train the Random Forest model with hyperparameter tuning
+rf_model <- train(Status ~ .,
+  data = train_data, method = "rf",
+  trControl = train_control, tuneGrid = tuning_grid,
+  metric = "Accuracy"
+)
+
+# Summarize the results
+print(rf_model)
+```
+
+- Hyperparameter tuning is performed on the Random Forest model to optimize the model's performance by selecting the best hyperparameters that minimize the error rate. The tuning grid is defined with different values for the number of variables randomly sampled at each split (mtry).
+
+- The Random Forest model is trained with hyperparameter tuning using cross-validation to find the best combination of hyperparameters that improve the model's accuracy and generalization ability.
+
+- The 'mtry', which represents the number of variables randomly sampled as candidates at each split. Values tested included the square root of the number of features, one-third, and half of the number of features. An 'mtry' value of approximately 10.5 rounded value based on data was selected, indicating the best balance between model complexity and prediction accuracy.
+
+- The Random Forest model showed a noticeable increase in Accuracy and Kappa with the tuned mtry, suggesting an enhanced ability to manage overfitting and improve predictive accuracy.
+
+### Adjusting model complexity
+```{r, result='asis', echo=FALSE}
+# Set up train control with cross-validation
+train_control <- trainControl(method = "cv", number = 10, search = "grid")
+
+# Define a grid of hyperparameters for logistic regression
+grid <- expand.grid(
+  alpha = 0:1, # alpha = 0 (Ridge) to 1 (Lasso)
+  lambda = seq(0.001, 0.1, length = 10)
+) # Range of lambda values
+
+# Train the logistic regression model with regularization
+model <- train(Status ~ .,
+  data = train_data, method = "glmnet",
+  trControl = train_control,
+  tuneGrid = grid
+)
+
+# Print the model summary
+print(model)
+```
+
+- The model complexity is adjusted by introducing regularization to the logistic regression model. Regularization helps prevent overfitting by penalizing large coefficients and reducing model complexity. 
+
+- The best model used Lasso regularization (alpha = 1) with a lambda of 0.034, indicating that a sparser model with fewer coefficients benefits the prediction accuracy.
+
+- The logistic regression model showed varying levels of accuracy based on the combination of alpha and lambda, with the best performing setup significantly improving model accuracy by effectively managing the bias-variance trade-off.
+
+```{r, result='asis', echo=FALSE}
+# Set up train control with cross-validation
+train_control <- trainControl(method = "cv", number = 10, search = "grid")
+
+# Define a grid of hyperparameters
+svm_grid <- expand.grid(
+  sigma = c(0.001, 0.01), # Range of sigma values
+  C = c(0.1, 1, 10, 100)
+) # Range of C values
+
+# Train the SVM model
+svm_model <- train(Status ~ .,
+  data = train_data, method = "svmRadial",
+  trControl = train_control,
+  tuneGrid = svm_grid
+)
+
+# Print the model summary
+print(svm_model)
+```
+
+- The model complexity is adjusted by tuning the hyperparameters of the SVM model. The hyperparameters sigma and C are optimized to improve the model's performance and generalization ability.
+
+- The best results were achieved with sigma = 0.001 and C = 10, which implies a balance between a fine-tuned fit to the data and maintaining a generalizable model without overfitting.
+
+- The SVM's tuning focused on achieving the highest possible accuracy by exploring a range of kernel widths and regularization strengths, showing considerable improvements in model performance at the optimal parameters.
+
+```{r, result='asis', echo=FALSE}
+# Set up train control with cross-validation
+train_control <- trainControl(method = "cv", number = 10, search = "grid")
+
+# Define a grid of hyperparameters
+rf_grid <- expand.grid(
+  mtry = c(2, sqrt(ncol(train_data)), ncol(train_data) / 3)
+)
+
+# Train the Random Forest model
+rf_model <- train(Status ~ .,
+  data = train_data, method = "rf",
+  trControl = train_control,
+  tuneGrid = rf_grid
+)
+
+# Print the model summary
+print(rf_model)
+```
+
+- The model complexity is adjusted by tuning the hyperparameters of the Random Forest model. The hyperparameter mtry, which represents the number of variables randomly sampled at each split, is optimized to improve the model's performance and generalization ability.
+
+- The best performance was found with mtry = 7, which is an intermediate value within the tested range.
+
+- Random Forest's tuning effectively explored different levels of model complexity by varying the mtry parameter, which controls how diverse each tree's decision making is in the forest. The optimal setting allowed for a robust model that avoids overfitting while maintaining high predictive accuracy.
+
+### Bagging for homogeneous learners
+```{r, result='asis', echo=FALSE}
+# Train a bagged model using the multinomial logistic regression model
+multinom_bagging <- bagging(Status ~ .,
+  data = train_data, nbagg = 25, coob = TRUE
+)
+
+# Summary of the bagged model
+print(multinom_bagging)
+
+# Predictions
+predictions_bagging <- predict(multinom_bagging, newdata = validation_data)
+
+# Evaluate the model
+confusion_matrix_bagging <- confusionMatrix(
+  predictions_bagging, validation_data$Status
+)
+
+# Print the confusion matrix
+print(confusion_matrix_bagging)
+```
+
+- Bagging (Bootstrap Aggregating) is applied to the multinomial logistic regression model to improve the model's performance by reducing variance and overfitting. Bagging involves training multiple models on different bootstrap samples of the data and combining their predictions to reduce the impact of outliers and noise in the data.
+
+- The bagged model is trained using the `bagging` function from the `ipred` package with 25 bootstrap samples. The out-of-bag error estimation is enabled to evaluate the model's performance on unseen data.
+
+- The summary of the bagged model provides information about the number of bootstrap samples, the out-of-bag error estimate, and other details of the bagged model. This information helps assess the performance of the bagged model compared to the original model.
+
+- Predictions are made on the validation data using the bagged model, and a confusion matrix is generated to evaluate the model's performance. The confusion matrix shows the counts of true positive, true negative, false positive, and false negative predictions made by the bagged model.
+
+### Bagging for SVM Models
+```{r, result='asis', echo=FALSE}
+# Train a bagged model using the SVM model
+svm_bagging <- bagging(Status ~ ., data = train_data, nbagg = 25, coob = TRUE)
+
+# Summary of the bagged model
+print(svm_bagging)
+
+# Predictions
+predictions_svm_bagging <- predict(svm_bagging, newdata = validation_data)
+
+# Evaluate the model
+confusion_matrix_svm_bagging <- confusionMatrix(
+  predictions_svm_bagging, validation_data$Status
+)
+
+# Print the confusion matrix
+print(confusion_matrix_svm_bagging)
+```
+
+- Bagging is applied to the SVM model to improve the model's performance by reducing variance and overfitting. Bagging involves training multiple models on different bootstrap samples of the data and combining their predictions to reduce the impact of outliers and noise in the data.
+
+- The bagged model is trained using the `bagging` function from the `ipred` package with 25 bootstrap samples. The out-of-bag error estimation is enabled to evaluate the model's performance on unseen data.
+
+- The summary of the bagged model provides information about the number of bootstrap samples, the out-of-bag error estimate, and other details of the bagged model. This information helps assess the performance of the bagged model compared to the original SVM model.
+
+- Predictions are made on the validation data using the bagged model, and a confusion matrix is generated to evaluate the model's performance. The confusion matrix shows the counts of true positive, true negative, false positive, and false negative predictions made by the bagged model.
+
+- The SVM model with bagging displayed a better accuracy and balance among the classes compared to logistic regression but still showed a significant misclassification rate.
+
+### Bagging for Random Forest Models
+```{r, result='asis', echo=FALSE}
+# Train a bagged model using the Random Forest model
+rf_bagging <- bagging(Status ~ ., data = train_data, nbagg = 25, coob = TRUE)
+
+# Summary of the bagged model
+print(rf_bagging)
+
+# Predictions
+predictions_rf_bagging <- predict(rf_bagging, newdata = validation_data)
+
+# Evaluate the model
+confusion_matrix_rf_bagging <- confusionMatrix(
+  predictions_rf_bagging, validation_data$Status
+)
+
+# Print the confusion matrix
+print(confusion_matrix_rf_bagging)
+```
+
+- Bagging is applied to the Random Forest model to improve the model's performance by reducing variance and overfitting. Bagging involves training multiple models on different bootstrap samples of the data and combining their predictions to reduce the impact of outliers and noise in the data.
+
+- The bagged model is trained using the `bagging` function from the `ipred` package with 25 bootstrap samples. The out-of-bag error estimation is enabled to evaluate the model's performance on unseen data.
+
+- The summary of the bagged model provides information about the number of bootstrap samples, the out-of-bag error estimate, and other details of the bagged model. This information helps assess the performance of the bagged model compared to the original Random Forest model.
+
+- Predictions are made on the validation data using the bagged model, and a confusion matrix is generated to evaluate the model's performance. The confusion matrix shows the counts of true positive, true negative, false positive, and false negative predictions made by the bagged model.
+
+- Showed the highest accuracy and balanced accuracy scores among the three models, demonstrating the efficacy of bagging with Random Forest in handling overfitting and improving model robustness.
+
+### Construction of Heterogeneous Ensemble model
+```{r, result='asis', echo=FALSE}
+# Define a function to create a heterogeneous ensemble model
+create_ensemble_model <- function(data, method_list, trControl) {
+  models <- list()
+  for (method in method_list) {
+    model <- train(Status ~ .,
+      data = data,
+      method = method, trControl = trControl, trace = FALSE
+    )
+    models[[method]] <- model
+  }
+  return(models)
+}
+
+# Define a list of methods for the ensemble model
+method_list <- c("multinom", "svmRadial", "rf")
+
+# Train control setup
+train_control <- trainControl(
+  method = "cv", number = 10,
+  savePredictions = "final", classProbs = TRUE
+)
+
+# Create the ensemble model
+ensemble_model <- create_ensemble_model(train_data, method_list, train_control)
+
+# Predictions for each model in the ensemble
+predictions_ensemble <- lapply(ensemble_model, predict,
+  newdata = validation_data, type = "raw"
+)
+
+# Combine predictions from all models in the ensemble into a dataframe
+combined_predictions <- as.data.frame(predictions_ensemble)
+
+# Convert predictions to factors with the same levels
+levels_list <- levels(train_data$Status)
+combined_predictions[] <- lapply(combined_predictions,
+  factor,
+  levels = levels_list
+)
+
+# Combine predictions using majority voting
+combined_predictions$Ensemble <- apply(combined_predictions, 1, function(x) {
+  names(which.max(table(x)))
+})
+
+# Ensure the ensemble predictions are factors with correct levels
+combined_predictions$Ensemble <- factor(
+  combined_predictions$Ensemble,
+  levels = levels_list
+)
+
+# Evaluate the ensemble model
+confusion_matrix_ensemble <- confusionMatrix(
+  combined_predictions$Ensemble, validation_data$Status
+)
+
+# Print the confusion matrix
+print(confusion_matrix_ensemble)
+```
+
+- A heterogeneous ensemble model is constructed by combining predictions from multiple models, including Multinomial Logistic Regression, SVM, and Random Forest. The ensemble model uses majority voting to make predictions based on the combined predictions of the individual models.
+
+- The ensemble model is trained using cross-validation to evaluate its performance on different subsets of the training data. The individual models are trained using the specified methods, and their predictions are combined using majority voting to make predictions for the ensemble model.
+
+- The ensemble model achieved an accuracy of approximately `r round(confusion_matrix_ensemble$overall["Accuracy"], 2)` indicating a high level of overall agreement between the ensemble model's predictions and the actual outcomes.
+
+- The Kappa statistic was 0.6335, suggesting a substantial agreement beyond chance between the predicted and actual classifications.
+
+### Comparison of individual models and ensemble model
+```{r, result='asis', echo=FALSE}
+# Compare the individual models and the ensemble model based on accuracy
+accuracy_multinom <- confusion_matrix_lr$overall["Accuracy"]
+accuracy_svm <- confusion_matrix_svm$overall["Accuracy"]
+accuracy_rf <- confusion_matrix_rf$overall["Accuracy"]
+accuracy_ensemble <- confusion_matrix_ensemble$overall["Accuracy"]
+
+# Print the accuracy of each model and the ensemble model
+print(paste(
+  "Multinomial Logistic Regression Accuracy:",
+  round(accuracy_multinom, 2)
+))
+print(paste("SVM Accuracy:", round(accuracy_svm, 2)))
+print(paste("Random Forest Accuracy:", round(accuracy_rf, 2)))
+print(paste("Ensemble Model Accuracy:", round(accuracy_ensemble, 2)))
+```
+
+- The individual models (Multinomial Logistic Regression, SVM, Random Forest) and the ensemble model are compared based on their accuracy in predicting the survival status of patients with cirrhosis.
+
+- For multinomial Logistic Regression the accuracy is 0.82, which suggests that the model performs reasonably well in predicting the correct status categories.
+
+- For SVM also the accuracy is 0.82, matching the performance of the multinomial logistic regression model. This indicates that SVM is equally effective for this dataset under the given configuration.
+
+- Random Forest shows a slightly lower accuracy of 0.80. Although it is just slightly below the other models in terms of accuracy, it still performs well in predicting the survival status of patients with cirrhosis.
+
+- The ensemble model, which combines predictions from the multinomial logistic regression, SVM, and Random Forest models, also achieves an accuracy of 0.82.
+
+## Learnings, observations, and conclusions
+
+### Data Exploration and Preprocessing
+
+- The dataset includes a range of clinical features which are both numerical and categorical. Variables like bilirubin, cholesterol, albumin, and stage indicate the diverse types of data involved and their potential implications on the survival outcomes.
+
+- The target variable 'Status' has three classes: 'C', 'CL', and 'D', representing different stages of cirrhosis. The dataset is imbalanced, with the majority of cases belonging to class 'C' which posed a challenge for the models to predict the minority classes accurately. 
+
+- I chose to impute the missing values using the median for numerical features and the mode for categorical features because these methods are robust to outliers and preserve the distribution of the data. I didn’t convert the categorical columns to numeric before imputation because converting categorical variables into numeric formats before imputation (such as assigning numbers to categories) can introduce arbitrary ordinality or false numeric relationships, which might not exist naturally within the data.
+
+- For my dataset, I used one-hot encoding to convert the categorical variables into binary columns because it is a common method for handling categorical variables in machine learning models. By converting categorical variables into binary columns, we can represent each category as a separate feature, allowing the model to capture the information encoded in the categories. I didn’t apply one-hot encoding to the ‘Status’ column because it is the target variable, and one-hot encoding would create unnecessary additional columns for each category, which is not required for the target variable in classification tasks.
+
+- As the data is imbalanced I chose standardization method over normalization because it maintains the effect of outliers by scaling the features based on standard deviation, which is crucial for features with significant outliers or highly variable data.
+
+- For feature Engineering, I used the 'skewness' function to identify and transform skewed features. Skewness is a measure of the asymmetry of the distribution of a variable. By transforming skewed features, we can make the data more normally distributed, which can improve the performance of machine learning models that assume normality.
+
+- I did dimensionality reduction using PCA for imbalance data but realized that it captured only 2-3 components which explained 80% of the variance and I cant used only 2-3 features for my model building. So, I decided to use all the features for model building.
+
+### Model Building, Evaluation and Improvement
+
+- The strategic decision to use macro averages for evaluation metrics due to the class imbalance helped in providing a more balanced view of model performance, highlighting the model's ability to generalize across different classes.
+
+- I evaluated the models using various performance metrics such as accuracy, precision, recall, F1 score, and AUC to assess their ability to predict the survival status of patients with cirrhosis. These metrics provide insights into the models' performance in terms of classification accuracy, sensitivity, specificity, and overall predictive power.
+
+- The Random Forest model showed the highest accuracy and AUC among the three models, indicating its effectiveness in predicting the survival status of patients with cirrhosis. The Random Forest model also had a relatively high F1 score, suggesting a good balance between precision and recall.
+
+- The Logistic Regression and SVM models performed similarly in terms of accuracy, precision, recall, and F1 score, with slightly lower values compared to the Random Forest model. However, both models showed a good balance between precision and recall, indicating their ability to classify the survival status of patients with cirrhosis.
+
+- Bagging is an integral part of Random Forest indeed, Random Forest is an ensemble technique based on bagged decision trees. Each tree in a Random Forest is built from a bootstrapped sample of the data, inherently using bagging.
+
+- Logistic Regression and SVM models are typically not used with bagging by default because they don't handle high variance in the same way tree-based models do. However, bagging can still be beneficial, especially in cases where the training data is noisy or very unbalanced, as it can help reduce variance and avoid overfitting.
+
+- I also did failure analysis to identify the misclassified cases by each model which showed that the models struggled with class 'CL' which is the minority class in the dataset. This highlights the challenge of imbalanced datasets and the need for techniques to address class imbalance.
+
+- From the results of confusion matrix the Random Forest model had the highest accuracy and balanced accuracy scores among the three models, demonstrating the efficacy of bagging with Random Forest in handling overfitting and improving model robustness.
+
+- The hyperparameter tuning and model complexity adjustments helped improve the models' performance by finding the optimal hyperparameters and adjusting the model complexity to achieve better accuracy and generalization ability.
+
+- The heterogeneous ensemble model, which combines predictions from multiple models, showed an accuracy of 0.82, which was almost similar to the individual models. The fact that the ensemble model's accuracy is not higher than the best individual models (logistic regression and SVM) suggests that combining these models did not provide a significant advantage in this case. This could be because the individual models are already performing near their potential on this dataset.
+
+- Overall, I gained valuable insights from the project regarding challenges faced in imbalance datasets, learned techniques to handle them, and the importance of model evaluation and improvement to achieve better predictive performance. I even realized what machine learning models can perform better for imbalanced datasets to avoid misclassification of minority classes.
+
+- I also realized that the dataset is relatively small and may not be representative of the entire population. Therefore, the models' performance may vary when applied to a larger and more diverse dataset. Further exploration and validation on a larger dataset would be beneficial to assess the models' generalization ability and robustness.
+
+- Due to the small dataset size, the models were not able to perform well on the minority class 'CL'. After trying techniques like RFE(Recursive Feature Elimination), PCA(Principal Component Analysis) and SMOTE(Synthetic Minority Over-sampling Technique) which are used to handle imbalanced datasets, I realized that due to limited amount of data in 'CL' class these techniques were not able to improve the model performance significantly and models struggled to predict the minority class accurately.
+
+## References
+
+"Cirrhosis Patient Survival Prediction Dataset." UCI Machine Learning Repository. Retrieved from
+https://archive.ics.uci.edu/dataset/878/cirrhosis+patient+survival+prediction+dataset-1
+
+Lantz, Brett (2023). Machine Learning with R, 4th Edition. PACKT Publishing. Available at
+https://learning.oreilly.com/
+
+Boehmke, Bradley & Greenwell, Brandon (2020). Hands-On Machine Learning with R. Available at
+https://bradleyboehmke.github.io/HOML/
+
+"SMOTE: SMOTE algorithm for unbalanced classification problems." DMwR package version 0.4.1, RDocumentation. Retrieved from
+https://www.rdocumentation.org/packages/DMwR/versions/0.4.1/topics/SMOTE
+
+"trainControl: Control parameters for the train function." caret package version 6.0-88, RDocumentation. Retrieved from
+https://www.rdocumentation.org/packages/caret/versions/6.0-88/topics/trainControl
+
+Augmented AI. (2017). Understanding Ensemble Learning [Video]. YouTube.
+https://www.youtube.com/watch?v=D_2LkhMJcfY
+
+Martin Schedlbauer. (2017). DA5030 U7 L5 Logistic Regression [Video]. YouTube.
+https://www.youtube.com/watch?v=6w38PtNrQvc&ab_channel=MartinSchedlbauer
+
+Michy Alice. (2015, September 13). How to Perform a Logistic Regression in R. R-bloggers. 
+https://www.r-bloggers.com/2015/09/how-to-perform-a-logistic-regression-in-r/
+
+HackerEarth. (n.d.). Practical Guide to Logistic Regression Analysis in R. Retrieved April 13,2024, from 
+https://www.hackerearth.com/practice/machine-learning/machine-learning-algorithms/logistic-regression-analysis-r/tutorial/
+
+SVM Tutorial. (2024). Retrieved April 13, 2024, from 
+https://www.svm-tutorial.com/
+
+Udacity. (2015). K-Fold Cross Validation - Intro to Machine Learning [Video]. YouTube.
+https://www.youtube.com/watch?v=TIgfjmp-4BA&ab_channel=Udacity
+
+Data School. (2015). ROC Curves and Area Under the Curve (AUC) Explained [Video]. YouTube.
+https://www.youtube.com/watch?v=OAl6eAyP-yo&ab_channel=DataSchool
+
+Amit Kapoor. (2016). The Power of Ensembles - Machine Learning [Video]. YouTube.
+https://www.youtube.com/watch?v=I6PuK7A1l6A&t=2s&ab_channel=AmitKapoor
+
+Dr Ali Soofastaei. (2018). 16 Cross Industry Standard Process for Data Mining CRISP DM [Video]. YouTube.
+https://www.youtube.com/watch?v=oNvoy5rfdyg&ab_channel=DrAliSoofastaei
